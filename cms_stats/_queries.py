@@ -8,12 +8,11 @@ Copyright 2020, Louis Gombert
 Licensed under AGPL-3.0 license
 """
 
-REQ_GET_OBJECT = "SELECT lo_get(( " \
-                 "SELECT loid " \
+REQ_GET_OBJECT = "SELECT loid " \
                  "FROM fsobjects " \
                  "INNER JOIN files f on fsobjects.digest = f.digest " \
                  "INNER JOIN submissions s on s.id = f.submission_id " \
-                 "WHERE s.id = 162));"
+                 "WHERE s.id = {sub_id};"
 
 REQ_LOID_EX_SCORE = "SELECT loid, score FROM fsobjects " \
                     "INNER JOIN files ON fsobjects.digest=files.digest " \
@@ -40,6 +39,18 @@ REQ_SUBMISSIONS = "SELECT timestamp, dataset_id, language " \
                   "INNER JOIN submission_results sr ON submissions.id = sr.submission_id " \
                   "ORDER BY timestamp;"
 
+REQ_SUBMISSIONS_PROBLEM = "SELECT timestamp, language, participation_id " \
+                          "FROM submissions " \
+                          "INNER JOIN submission_results sr on submissions.id = sr.submission_id " \
+                          "WHERE timestamp IN ( " \
+                          "SELECT min(timestamp) " \
+                          "FROM submission_results " \
+                          "INNER JOIN submissions s on s.id = submission_results.submission_id " \
+                          "WHERE score = 100 " \
+                          "AND dataset_id = {problem} " \
+                          "GROUP BY dataset_id, s.participation_id " \
+                          "ORDER BY min(s.timestamp)) "
+
 REQ_LANGUAGES = "SELECT DISTINCT language " \
                 "FROM submissions;"
 
@@ -48,7 +59,7 @@ REQ_LANGUAGES_OCCURENCES = "SELECT DISTINCT language, count(*) as nb_sub " \
                            "GROUP BY language " \
                            "ORDER BY nb_sub DESC;"
 
-REQ_AVG_SCORE_BY_LANG = "SELECT p.dataset_id, avg(p.score) as avg_score, p.language " \
+REQ_AVG_SCORE_BY_LANG = "SELECT avg(p.score) as avg_score, p.language " \
                         "FROM ( " \
                         "SELECT DISTINCT dataset_id, first_name, last_name, language," \
                         "max(score) as score " \
@@ -56,22 +67,23 @@ REQ_AVG_SCORE_BY_LANG = "SELECT p.dataset_id, avg(p.score) as avg_score, p.langu
                         "INNER JOIN submissions s on s.id = submission_results.submission_id " \
                         "INNER JOIN participations p on p.id = s.participation_id " \
                         "INNER JOIN users u on u.id = p.user_id " \
-                        "WHERE dataset_id != 5 " \
+                        "WHERE dataset_id = {problem} " \
                         "GROUP BY dataset_id, first_name, last_name, language " \
                         "ORDER BY dataset_id DESC, max(score) DESC) as p " \
-                        "GROUP BY language, dataset_id " \
-                        "ORDER BY dataset_id, language;"
+                        "GROUP BY language " \
+                        "ORDER BY avg_score DESC;"
 
-REQ_FIRST_SUBMISSION_LANG_EX = "SELECT dataset_id, timestamp, language " \
+REQ_FIRST_SUBMISSION_LANG_EX = "SELECT s.id, dataset_id, language, timestamp " \
                                "FROM submission_results " \
-                               "INNER JOIN submissions s" \
+                               "INNER JOIN submissions s " \
                                "ON s.id = submission_results.submission_id " \
                                "WHERE score = 100 " \
                                "AND dataset_id = {problem} " \
-                               "AND language = {language}" \
+                               "AND language LIKE '{language}' " \
                                "LIMIT 1;"
 
-REQ_FIRST_SUBS = "SELECT id, timestamp, language, dataset_id FROM submissions " \
+# unused
+REQ_FIRST_SUBS = "SELECT id, dataset_id, language FROM submissions " \
                  "INNER JOIN submission_results sr on submissions.id = sr.submission_id " \
                  "WHERE timestamp IN ( " \
                  "SELECT min(timestamp) " \
