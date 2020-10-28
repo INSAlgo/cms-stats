@@ -13,16 +13,18 @@ import psycopg2
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
-from cms_stats._queries import REQ_LOID_EX_SCORE,\
-    REQ_SCOREBOARD,\
-    REQ_SUBMISSIONS,\
-    REQ_LANGUAGES,\
-    REQ_LANGUAGES_OCCURENCES
+from cms_stats._queries import REQ_LOID_EX_SCORE, \
+    REQ_SCOREBOARD, \
+    REQ_SUBMISSIONS, \
+    REQ_LANGUAGES, \
+    REQ_LANGUAGES_OCCURENCES, \
+    REQ_FIRST_SUBMISSION_LANG_EX, \
+    REQ_GET_OBJECT, REQ_AVG_SCORE_BY_LANG, REQ_SUBMISSIONS_PROBLEM
 
 
 class CMSAnalyze:
     """
-    main class to instantiate
+    main class to instantiate to begin analysis
     """
 
     def __init__(self, host, database, user, password):
@@ -42,27 +44,42 @@ class CMSAnalyze:
         """
         return self.conn.lobject(loid)
 
+    def get_loid_from_sub(self, submission_id):
+        """
+        Retrieves an large_object representing the code given a submission id
+        :param submission_id primary key of the submission
+        :return the program code object loid
+        """
+        self.cursor.execute(REQ_GET_OBJECT.format(sub_id=submission_id))
+        return self.cursor.fetchone()[0]
+
     def get_loids_score_pb(self, problem_id, score=0):
         """
-        Retrives the loids of a given problem
+        Retrives the loids of the solutions of a given problem
         :param problem_id: unique problem identifier
         :param score: minimum score of the submissions
-        :return: list of tuples with the form (id, score
+        :return: list of tuples with the form (id, score)
         """
         self.cursor.execute(REQ_LOID_EX_SCORE.format(problem=problem_id, score=score))
         return self.cursor.fetchall()
 
-    def export_program(self, loid, name, folder=""):
+    def export_program(self, loid, name="export", folder=".", to_stdout=False):
         """
         Exports a submission program in a file
         :param loid: id of the object to export
         :param name: name given to the file exported
         :param folder: export location
+        :param to_stdout: export to stdout instead of file
         """
+        obj = self.conn.lobject(loid)
+
+        if to_stdout:
+            print(obj.read())
+            return
+
         if not os.path.exists(folder):
             os.makedirs(folder)
 
-        obj = self.conn.lobject(loid)
         obj.export(os.path.join(folder, name))
 
     def export_code_pb(self, problem_id, score_min=0):
@@ -94,7 +111,7 @@ class CMSAnalyze:
         """
         leaderboard = self.get_leaderboard()
         categories = [f"{x}-{x + interval}" for x in range(0, max_score, interval)]
-        results = [len(list(filter(lambda x: score <= x[2] < score + interval, leaderboard)))
+        results = [len(list(filter(lambda x, sc=score: sc <= x[2] < sc + interval, leaderboard)))
                    for score in range(0, max_score, interval)]
 
         _, axis = plt.subplots()
@@ -168,4 +185,46 @@ class CMSAnalyze:
             bbox_to_anchor=(1.2, 0, 0.5, 1)
         )
 
+        plt.show()
+
+    def get_first_perfect_sub(self, problem, language="%"):
+        """
+        Returns information about the first perfect submission for a specific problem,
+        and language if specified
+        :param problem: problem unique identifier
+        :param language: language as a string
+        :return: 1 tuple like (submission_id, problem, language, timestamp)
+        """
+        self.cursor.execute(REQ_FIRST_SUBMISSION_LANG_EX.format(problem=problem, language=language))
+        first = self.cursor.fetchall()
+        return first[0] if first else ()    # If the problem hasn't been solved (yet)
+
+    def fetch_avg_score_by_lang(self, problem):
+        self.cursor.execute(REQ_AVG_SCORE_BY_LANG.format(problem=problem))
+
+        print(f"Scores moyens pour le problème {problem} : ")
+        for lang in self.cursor.fetchall():
+            print(f"{lang[1]}: {round(lang[0])}pts")
+        print()
+
+    def fetch_resolutions_by_problem(self, problem):
+        """
+        Displays the evolution of cumulative perfect submissions over time
+        """
+        self.cursor.execute(REQ_SUBMISSIONS_PROBLEM.format(problem=problem))
+        subs = self.cursor.fetchall()
+
+        timestamps = [time[0].timestamp() for time in subs]
+
+        mpl.style.use('seaborn')
+        _, axis = plt.subplots()
+
+        plt.xticks([1602687747, 1602690931, 1602695098])
+        axis.set_xticklabels(["0h", "1h", "2h"])
+
+        axis.set_title(f'Cumul des résolutions du problème {problem}')
+        axis.set_xlabel("Durée du concours")
+        axis.set_ylabel("Nombre de résolutions avec un score de 100")
+
+        axis.hist(timestamps, cumulative=True, bins=500, color='coral')
         plt.show()
